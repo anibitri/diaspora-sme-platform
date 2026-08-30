@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Marketplace — DiasporaInvest Albania</title>
+  <link rel="stylesheet" href="/css/style.css" />
+</head>
+<body>
+  <div id="nav"></div>
+  <div class="container">
+    <h1>Invest in Albanian SMEs</h1>
+    <p class="lede">
+      Browse vetted Albanian small businesses seeking capital, each with a transparent,
+      filing-based risk score. This is a research prototype: all investments below are
+      simulated, no real funds move.
+    </p>
+
+    <div class="toolbar section-gap">
+      <select id="sectorFilter">
+        <option value="">All sectors</option>
+      </select>
+      <select id="tierFilter">
+        <option value="">All risk tiers</option>
+        <option value="Low">Low risk</option>
+        <option value="Medium">Medium risk</option>
+        <option value="High">High risk</option>
+      </select>
+    </div>
+
+    <div id="list" class="grid"><div class="spinner-text">Loading SMEs…</div></div>
+  </div>
+
+  <script src="/js/api.js"></script>
+  <script>
+    mountNav("market");
+
+    const listEl = document.getElementById("list");
+    const sectorFilter = document.getElementById("sectorFilter");
+    const tierFilter = document.getElementById("tierFilter");
+
+    let all = [];
+
+    function render() {
+      const sector = sectorFilter.value;
+      const tier = tierFilter.value;
+      const filtered = all.filter(s => (!sector || s.sector === sector) && (!tier || s.risk_tier === tier));
+
+      if (filtered.length === 0) {
+        listEl.innerHTML = `<p class="muted">No SMEs match these filters.</p>`;
+        return;
+      }
+
+      listEl.innerHTML = filtered.map(s => `
+        <a class="sme-card" href="/sme.html?id=${s.id}">
+          <h3>${s.name}</h3>
+          <div class="sme-meta">${s.sector} · ${s.city} · founded ${s.founded_year} · ${s.employees} employees</div>
+          <div class="sme-desc">Seeking ${fmtMoney(s.funding_goal)} in diaspora capital.</div>
+          <div class="sme-card-footer">
+            ${tierBadge(s.risk_tier, s.risk_unavailable, s.risk_stale)}
+            <span class="muted">${s.risk_score != null ? s.risk_score.toFixed(0) + "/100" : ""}</span>
+          </div>
+        </a>
+      `).join("");
+    }
+
+    async function load() {
+      try {
+        all = await api.listSmes({ status: "vetted" });
+        const sectors = [...new Set(all.map(s => s.sector))].sort();
+        sectorFilter.innerHTML = `<option value="">All sectors</option>` + sectors.map(s => `<option>${s}</option>`).join("");
+        render();
+      } catch (e) {
+        listEl.innerHTML = `<div class="notice notice-error">Could not load SMEs: ${e.message}</div>`;
+      }
+    }
+
+    sectorFilter.addEventListener("change", render);
+    tierFilter.addEventListener("change", render);
+    load();
+  </script>
+</body>
+</html>

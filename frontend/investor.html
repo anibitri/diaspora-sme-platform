@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Investor portfolio — DiasporaInvest Albania</title>
+  <link rel="stylesheet" href="/css/style.css" />
+</head>
+<body>
+  <div id="nav"></div>
+  <div class="container">
+    <div id="content"></div>
+  </div>
+
+  <script src="/js/api.js"></script>
+  <script>
+    mountNav("investor");
+    const contentEl = document.getElementById("content");
+
+    function loginForm(prefillEmail = "") {
+      return `
+        <h1>Investor profile</h1>
+        <p class="lede">Simulated sign-up — no password, no real KYC. Enter your details to create or resume
+          a demo investor profile and see how the platform looks from the investor's side.</p>
+        <div class="card" style="max-width:420px">
+          <div id="loginError"></div>
+          <label for="name">Full name</label>
+          <input id="name" placeholder="Elira Hoxha" />
+          <label for="email">Email</label>
+          <input id="email" type="email" value="${prefillEmail}" placeholder="you@example.com" />
+          <label for="country">Country of residence</label>
+          <input id="country" placeholder="United Kingdom" />
+          <button class="primary" id="loginBtn" style="margin-top:14px">Continue</button>
+        </div>
+      `;
+    }
+
+    function portfolioView(portfolio) {
+      const { investor, investments, total_committed } = portfolio;
+      const rows = investments.length
+        ? investments.map(i => `
+          <tr>
+            <td><a href="/sme.html?id=${i.sme_id}">${i.sme_name}</a></td>
+            <td class="num">${fmtMoney(i.amount, i.currency)}</td>
+            <td><span class="status-pill">${i.status}</span></td>
+            <td>${fmtDate(i.created_at)}</td>
+          </tr>`).join("")
+        : `<tr><td colspan="4" class="muted">No investments yet — browse the <a href="/index.html">marketplace</a>.</td></tr>`;
+
+      return `
+        <h1>Welcome, ${investor.name}</h1>
+        <p class="muted">${investor.email} · ${investor.country_of_residence}</p>
+        <div class="card section-gap">
+          <h3>Total committed (simulated)</h3>
+          <div class="score-tile"><div class="value">${fmtMoney(total_committed)}</div></div>
+        </div>
+        <div class="card section-gap">
+          <h2>My investments</h2>
+          <table>
+            <thead><tr><th>SME</th><th class="num">Amount</th><th>Status</th><th>Date</th></tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+        <button id="logoutBtn" style="margin-top:16px">Switch investor / log out</button>
+      `;
+    }
+
+    async function showPortfolio(investor) {
+      try {
+        const portfolio = await api.getPortfolio(investor.id);
+        contentEl.innerHTML = portfolioView(portfolio);
+        document.getElementById("logoutBtn").addEventListener("click", () => {
+          clearCurrentInvestor();
+          render();
+        });
+      } catch (e) {
+        contentEl.innerHTML = `<div class="notice notice-error">Could not load portfolio: ${e.message}</div>`;
+      }
+    }
+
+    function render() {
+      const investor = getCurrentInvestor();
+      if (investor) {
+        showPortfolio(investor);
+        return;
+      }
+      contentEl.innerHTML = loginForm();
+      document.getElementById("loginBtn").addEventListener("click", async () => {
+        const name = document.getElementById("name").value.trim();
+        const email = document.getElementById("email").value.trim();
+        const country = document.getElementById("country").value.trim();
+        const errEl = document.getElementById("loginError");
+        if (!name || !email || !country) {
+          errEl.innerHTML = `<div class="notice notice-error">Please fill in all fields.</div>`;
+          return;
+        }
+        try {
+          const investor = await api.createInvestor({ name, email, country_of_residence: country });
+          setCurrentInvestor(investor);
+          render();
+        } catch (e) {
+          errEl.innerHTML = `<div class="notice notice-error">${e.message}</div>`;
+        }
+      });
+    }
+
+    render();
+  </script>
+</body>
+</html>
