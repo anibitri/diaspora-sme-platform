@@ -7,18 +7,25 @@ need real auth with MFA and per-admin accounts (thesis section 12.1) -- explicit
 out of scope for this prototype (thesis section 10).
 """
 
-from fastapi import Header
+import os
 
-from app.errors import auth_error
+from fastapi import Header, Request
 
-ADMIN_TOKEN = "demo-admin-token"
+from app.errors import AppError, auth_error
+from app.rate_limit import rate_limit_auth
+
+ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN", "demo-admin-token")
 
 
-def require_admin(x_admin_token: str | None = Header(default=None)) -> str:
+def require_admin(request: Request, x_admin_token: str | None = Header(default=None)) -> str:
     if x_admin_token != ADMIN_TOKEN:
+        try:
+            rate_limit_auth(request)
+        except AppError:
+            raise
         raise auth_error(
             "INSUFFICIENT_PERMISSIONS",
             "A valid admin token is required for this action.",
-            {"hint": "Send header X-Admin-Token: demo-admin-token (prototype only)."},
+            {"hint": "Set ADMIN_TOKEN env var; defaults to demo-admin-token (prototype only)."},
         )
     return "admin"

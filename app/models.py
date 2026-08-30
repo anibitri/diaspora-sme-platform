@@ -21,6 +21,17 @@ class SME(Base):
     status: Mapped[str] = mapped_column(String(20), default="pending")
     created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.utcnow)
 
+    # Contact / links (thesis section 5: SMEs need to be reachable by interested investors).
+    contact_name: Mapped[str] = mapped_column(String(200), default="")
+    contact_email: Mapped[str | None] = mapped_column(String(200), nullable=True, unique=True)
+    contact_phone: Mapped[str] = mapped_column(String(50), default="")
+    website: Mapped[str] = mapped_column(String(300), default="")
+
+    # Auth: only set for SMEs that self-registered through the signup flow.
+    # Seeded/sampled SMEs (thesis section 6: "sampled from public QKB filings")
+    # have no login -- they represent filing data, not a platform account.
+    password_hash: Mapped[str | None] = mapped_column(String(200), nullable=True)
+
     filings: Mapped[list["Filing"]] = relationship(
         back_populates="sme", cascade="all, delete-orphan", order_by="Filing.year"
     )
@@ -89,6 +100,7 @@ class Investor(Base):
     name: Mapped[str] = mapped_column(String(200))
     email: Mapped[str] = mapped_column(String(200), unique=True)
     country_of_residence: Mapped[str] = mapped_column(String(100))
+    password_hash: Mapped[str] = mapped_column(String(200))
     created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.utcnow)
 
     investments: Mapped[list["Investment"]] = relationship(back_populates="investor")

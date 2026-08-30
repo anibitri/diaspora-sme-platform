@@ -1,5 +1,27 @@
 const ADMIN_TOKEN_KEY = "dsme_admin_token";
-const INVESTOR_KEY = "dsme_investor";
+const INVESTOR_TOKEN_KEY = "dsme_investor_token";
+const INVESTOR_PROFILE_KEY = "dsme_investor_profile";
+const SME_TOKEN_KEY = "dsme_sme_token";
+const SME_PROFILE_KEY = "dsme_sme_profile";
+
+// Escape any string before it is interpolated into an innerHTML template.
+// Required everywhere user- or business-submitted text (SME names, descriptions,
+// contact details, admin notes) is rendered -- without it, a business signing up
+// with a name like "<img src=x onerror=...>" would be a stored XSS vector.
+function esc(value) {
+  if (value == null) return "";
+  return String(value).replace(/[&<>"']/g, (c) => (
+    { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]
+  ));
+}
+
+// Escape a value for safe use inside an href/src attribute (on top of esc()).
+function escUrl(value) {
+  if (!value) return "#";
+  const s = String(value);
+  if (!/^https?:\/\//i.test(s)) return "#";
+  return esc(s);
+}
 
 async function apiFetch(path, options = {}) {
   const headers = Object.assign({ "Content-Type": "application/json" }, options.headers || {});
@@ -20,6 +42,18 @@ async function apiFetch(path, options = {}) {
   return body;
 }
 
+function adminHeaders() {
+  return { "X-Admin-Token": localStorage.getItem(ADMIN_TOKEN_KEY) || "" };
+}
+function investorAuthHeaders() {
+  const token = localStorage.getItem(INVESTOR_TOKEN_KEY);
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+function smeAuthHeaders() {
+  const token = localStorage.getItem(SME_TOKEN_KEY);
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 const api = {
   listSmes: (params = {}) => {
     const qs = new URLSearchParams(params).toString();
@@ -29,14 +63,18 @@ const api = {
   recomputeScore: (id) =>
     apiFetch(`/api/smes/${id}/score`, { method: "POST", headers: adminHeaders() }),
 
-  createInvestor: (payload) => apiFetch(`/api/investors`, { method: "POST", body: JSON.stringify(payload) }),
-  getInvestorByEmail: (email) => apiFetch(`/api/investors/by-email/${encodeURIComponent(email)}`),
-  getPortfolio: (investorId) => apiFetch(`/api/investors/${investorId}/portfolio`),
+  smeSignup: (payload) => apiFetch(`/api/smes/signup`, { method: "POST", body: JSON.stringify(payload) }),
+  smeLogin: (payload) => apiFetch(`/api/smes/login`, { method: "POST", body: JSON.stringify(payload) }),
+  getMySme: () => apiFetch(`/api/smes/me`, { headers: smeAuthHeaders() }),
+
+  investorSignup: (payload) => apiFetch(`/api/investors/signup`, { method: "POST", body: JSON.stringify(payload) }),
+  investorLogin: (payload) => apiFetch(`/api/investors/login`, { method: "POST", body: JSON.stringify(payload) }),
+  getPortfolio: () => apiFetch(`/api/investors/me/portfolio`, { headers: investorAuthHeaders() }),
 
   createInvestment: (payload, idemKey) =>
     apiFetch(`/api/investments`, {
       method: "POST",
-      headers: { "Idempotency-Key": idemKey },
+      headers: { ...investorAuthHeaders(), "Idempotency-Key": idemKey },
       body: JSON.stringify(payload),
     }),
 
@@ -51,11 +89,6 @@ const api = {
   adminAuditLog: () => apiFetch(`/api/admin/audit-log`, { headers: adminHeaders() }),
 };
 
-function adminHeaders() {
-  const token = localStorage.getItem(ADMIN_TOKEN_KEY) || "";
-  return { "X-Admin-Token": token };
-}
-
 function setAdminToken(token) {
   localStorage.setItem(ADMIN_TOKEN_KEY, token);
 }
@@ -63,15 +96,30 @@ function getAdminToken() {
   return localStorage.getItem(ADMIN_TOKEN_KEY) || "";
 }
 
-function setCurrentInvestor(investor) {
-  localStorage.setItem(INVESTOR_KEY, JSON.stringify(investor));
+function setInvestorSession(token, investor) {
+  localStorage.setItem(INVESTOR_TOKEN_KEY, token);
+  localStorage.setItem(INVESTOR_PROFILE_KEY, JSON.stringify(investor));
 }
-function getCurrentInvestor() {
-  const raw = localStorage.getItem(INVESTOR_KEY);
+function getInvestorProfile() {
+  const raw = localStorage.getItem(INVESTOR_PROFILE_KEY);
   return raw ? JSON.parse(raw) : null;
 }
-function clearCurrentInvestor() {
-  localStorage.removeItem(INVESTOR_KEY);
+function clearInvestorSession() {
+  localStorage.removeItem(INVESTOR_TOKEN_KEY);
+  localStorage.removeItem(INVESTOR_PROFILE_KEY);
+}
+
+function setSmeSession(token, sme) {
+  localStorage.setItem(SME_TOKEN_KEY, token);
+  localStorage.setItem(SME_PROFILE_KEY, JSON.stringify(sme));
+}
+function getSmeProfile() {
+  const raw = localStorage.getItem(SME_PROFILE_KEY);
+  return raw ? JSON.parse(raw) : null;
+}
+function clearSmeSession() {
+  localStorage.removeItem(SME_TOKEN_KEY);
+  localStorage.removeItem(SME_PROFILE_KEY);
 }
 
 function fmtMoney(amount, currency = "EUR") {
@@ -92,11 +140,12 @@ function tierBadge(tier, unavailable, stale) {
   const cls = tier === "Low" ? "badge-low" : tier === "Medium" ? "badge-medium" : "badge-high";
   const label = tier ? `${tier} risk` : "Unscored";
   const staleTag = stale ? " (stale)" : "";
-  return `<span class="badge ${cls}"><span class="dot"></span>${label}${staleTag}</span>`;
+  return `<span class="badge ${cls}"><span class="dot"></span>${esc(label)}${esc(staleTag)}</span>`;
 }
 
 function renderNav(active) {
-  const investor = getCurrentInvestor();
+  const investor = getInvestorProfile();
+  const sme = getSmeProfile();
   return `
   <div class="prototype-banner">Research prototype &mdash; simulated data, simulated transactions. No real money moves through this system.</div>
   <header class="topnav">
@@ -104,6 +153,7 @@ function renderNav(active) {
       <div class="brand">Diaspora<span>Invest</span> Albania</div>
       <nav class="links">
         <a href="/index.html" class="${active === "market" ? "active" : ""}">Marketplace</a>
+        <a href="/sme-signup.html" class="${active === "sme" ? "active" : ""}">${sme ? "My business" : "List your business"}</a>
         <a href="/investor.html" class="${active === "investor" ? "active" : ""}">${investor ? "My portfolio" : "Investor login"}</a>
         <a href="/admin.html" class="${active === "admin" ? "active" : ""}">Admin / vetting</a>
       </nav>

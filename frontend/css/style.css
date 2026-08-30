@@ -106,6 +106,9 @@ h3 { font-size: 14px; margin: 0 0 8px; color: var(--text-secondary); text-transf
 p { line-height: 1.5; color: var(--text-secondary); }
 .muted { color: var(--text-muted); font-size: 13px; }
 .lede { color: var(--text-secondary); max-width: 640px; }
+ul.lede { padding-left: 20px; line-height: 1.6; }
+ul.lede li { margin-bottom: 4px; }
+textarea { resize: vertical; min-height: 70px; font-family: inherit; }
 
 /* --- Cards ------------------------------------------------------- */
 

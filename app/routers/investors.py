@@ -1,43 +1,56 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
+from app.auth import create_session_token, get_current_investor, hash_password, verify_password
 from app.database import get_db
-from app.errors import AppError, validation_error
+from app.errors import AppError, auth_error
 from app.models import Investor
-from app.schemas import InvestorCreate, InvestorOut, InvestmentOut, PortfolioOut
+from app.rate_limit import rate_limit_auth
+from app.schemas import (
+    InvestmentOut,
+    InvestorLogin,
+    InvestorOut,
+    InvestorSessionOut,
+    InvestorSignup,
+    PortfolioOut,
+)
 
 router = APIRouter(prefix="/api/investors", tags=["investors"])
 
 
-@router.post("", response_model=InvestorOut)
-def create_or_get_investor(payload: InvestorCreate, db: Session = Depends(get_db)):
-    """Simulated sign-up / login-by-email: no real auth (prototype scope,
-    thesis section 10). Re-posting the same email returns the existing profile."""
-    existing = db.query(Investor).filter(Investor.email == payload.email).one_or_none()
-    if existing:
-        return existing
+@router.post("/signup", response_model=InvestorSessionOut, dependencies=[Depends(rate_limit_auth)])
+def signup(payload: InvestorSignup, db: Session = Depends(get_db)):
+    if db.query(Investor).filter(Investor.email == payload.email).one_or_none():
+        raise AppError("AUTH_EMAIL_TAKEN", "An investor account with that email already exists. Try logging in.", 409)
 
-    investor = Investor(name=payload.name, email=payload.email, country_of_residence=payload.country_of_residence)
+    investor = Investor(
+        name=payload.name, email=payload.email,
+        country_of_residence=payload.country_of_residence,
+        password_hash=hash_password(payload.password),
+    )
     db.add(investor)
     db.commit()
     db.refresh(investor)
+    token = create_session_token("investor", investor.id)
+    return InvestorSessionOut(token=token, investor=investor)
+
+
+@router.post("/login", response_model=InvestorSessionOut, dependencies=[Depends(rate_limit_auth)])
+def login(payload: InvestorLogin, db: Session = Depends(get_db)):
+    investor = db.query(Investor).filter(Investor.email == payload.email).one_or_none()
+    if investor is None or not verify_password(payload.password, investor.password_hash):
+        raise auth_error("INVALID_CREDENTIALS", "Incorrect email or password.")
+    token = create_session_token("investor", investor.id)
+    return InvestorSessionOut(token=token, investor=investor)
+
+
+@router.get("/me", response_model=InvestorOut)
+def get_me(investor: Investor = Depends(get_current_investor)):
     return investor
 
 
-@router.get("/by-email/{email}", response_model=InvestorOut)
-def get_investor_by_email(email: str, db: Session = Depends(get_db)):
-    investor = db.query(Investor).filter(Investor.email == email).one_or_none()
-    if investor is None:
-        raise AppError("AUTH_UNKNOWN_INVESTOR", "No investor profile found for that email.", 404)
-    return investor
-
-
-@router.get("/{investor_id}/portfolio", response_model=PortfolioOut)
-def get_portfolio(investor_id: int, db: Session = Depends(get_db)):
-    investor = db.get(Investor, investor_id)
-    if investor is None:
-        raise AppError("AUTH_UNKNOWN_INVESTOR", f"No investor found with id {investor_id}.", 404)
-
+@router.get("/me/portfolio", response_model=PortfolioOut)
+def get_my_portfolio(investor: Investor = Depends(get_current_investor)):
     investments = [
         InvestmentOut(
             id=inv.id, investor_id=inv.investor_id, sme_id=inv.sme_id,

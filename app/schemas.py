@@ -1,6 +1,8 @@
 import datetime as dt
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
+
+PASSWORD_MIN_LENGTH = 8
 
 
 # ---------------------------------------------------------------------------
@@ -67,20 +69,78 @@ class SMEDetailOut(BaseModel):
     employees: int
     funding_goal: float
     status: str
+    contact_name: str
+    contact_email: str | None
+    contact_phone: str
+    website: str
+    has_login: bool
     filings: list[FilingOut]
     risk_score: RiskScoreOut | None
 
     model_config = {"from_attributes": True}
 
 
+class SMESignup(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    sector: str = Field(min_length=1, max_length=100)
+    city: str = Field(min_length=1, max_length=100)
+    description: str = Field(default="", max_length=2000)
+    founded_year: int = Field(ge=1900, le=2100)
+    employees: int = Field(ge=0, le=100_000)
+    funding_goal: float = Field(gt=0)
+
+    contact_name: str = Field(min_length=1, max_length=200)
+    contact_email: EmailStr
+    contact_phone: str = Field(default="", max_length=50)
+    website: str = Field(default="", max_length=300)
+    password: str = Field(min_length=PASSWORD_MIN_LENGTH, max_length=200)
+
+    # First-year filing, provided at signup so the SME enters the vetting
+    # queue with real data instead of an empty shell. total_assets is
+    # deliberately NOT collected here -- it is derived server-side as
+    # total_liabilities + equity so a submitted filing can never violate
+    # the fundamental accounting identity (assets = liabilities + equity).
+    filing_year: int = Field(ge=1900, le=2100)
+    revenue: float = Field(gt=0)
+    cogs: float = Field(ge=0)
+    net_income: float
+    current_assets: float = Field(ge=0)
+    current_liabilities: float = Field(ge=0)
+    total_liabilities: float = Field(ge=0)
+    equity: float
+
+    @field_validator("website")
+    @classmethod
+    def website_scheme(cls, v: str) -> str:
+        if v and not (v.startswith("http://") or v.startswith("https://")):
+            return f"https://{v}"
+        return v
+
+
+class SMELogin(BaseModel):
+    email: EmailStr
+    password: str = Field(min_length=1, max_length=200)
+
+
+class SMESessionOut(BaseModel):
+    token: str
+    sme: SMEDetailOut
+
+
 # ---------------------------------------------------------------------------
 # Investors
 # ---------------------------------------------------------------------------
 
-class InvestorCreate(BaseModel):
+class InvestorSignup(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     email: EmailStr
     country_of_residence: str = Field(min_length=1, max_length=100)
+    password: str = Field(min_length=PASSWORD_MIN_LENGTH, max_length=200)
+
+
+class InvestorLogin(BaseModel):
+    email: EmailStr
+    password: str = Field(min_length=1, max_length=200)
 
 
 class InvestorOut(BaseModel):
@@ -93,12 +153,16 @@ class InvestorOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class InvestorSessionOut(BaseModel):
+    token: str
+    investor: InvestorOut
+
+
 # ---------------------------------------------------------------------------
 # Investments
 # ---------------------------------------------------------------------------
 
 class InvestmentCreate(BaseModel):
-    investor_id: int
     sme_id: int
     amount: float = Field(gt=0)
     currency: str = Field(default="EUR", max_length=10)
