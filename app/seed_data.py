@@ -28,12 +28,29 @@ from sqlalchemy.orm import Session
 
 from app.auth import hash_password
 from app.models import AdminAction, Filing, Investment, Investor, RiskScore, SME
+from app.returns import INVESTMENT_TYPES, estimate_return_pct
 from app.risk_scoring import compute_risk_score
+from app.synth_filings import PROFILES, make_filing_series
 
 random.seed(42)
+_RNG = random.Random(42)
+
+INVESTMENT_TYPE_CYCLE = list(INVESTMENT_TYPES.keys())
 
 SECTORS = ["Tourism & Hospitality", "Agro-processing", "Manufacturing", "IT Services", "Retail & Trade"]
 CITIES = ["Tirana", "Durres", "Vlore", "Korce", "Shkoder", "Berat", "Saranda"]
+
+# Lowercase Albanian sector phrase used inline in generated descriptions
+# ("nje biznes ne sektorin e ...") -- kept separate from the frontend's
+# SECTOR_LABELS_SQ (js/api.js) since that one is a display label, not a
+# genitive phrase.
+SECTOR_LABELS_SQ_LOWER = {
+    "Tourism & Hospitality": "turizmit dhe mikpritjes",
+    "Agro-processing": "përpunimit bujqësor",
+    "Manufacturing": "prodhimit",
+    "IT Services": "shërbimeve IT",
+    "Retail & Trade": "tregtisë me pakicë",
+}
 
 NAME_STEMS = {
     "Tourism & Hospitality": ["Riviera Stay", "Albanian Coast Tours", "Guesthouse Illyria", "Lake View Retreat"],
@@ -64,109 +81,14 @@ def _make_contact(name: str) -> dict:
     }
 
 
-def _build_balance_sheet(revenue, equity_frac, debt_ratio, current_ratio_target, cl_frac, distressed=False):
-    """Returns (current_assets, current_liabilities, total_assets, total_liabilities, equity),
-    always satisfying total_assets == total_liabilities + equity exactly."""
-    if distressed:
-        equity = -round(revenue * equity_frac, 0)
-        total_liabilities = round(revenue * debt_ratio, 0)
-    else:
-        equity = round(revenue * equity_frac, 0)
-        total_liabilities = round(equity * debt_ratio, 0)
-
-    total_assets = total_liabilities + equity
-    if total_assets <= revenue * 0.05:
-        # guard against a degenerate near-zero/negative asset base
-        total_assets = round(revenue * 0.15, 0)
-        total_liabilities = total_assets - equity
-
-    current_liabilities = round(total_liabilities * cl_frac, 0)
-    current_assets = round(min(current_liabilities * current_ratio_target, total_assets * 0.95), 0)
-
-    return current_assets, current_liabilities, total_assets, total_liabilities, equity
-
-
-def _make_filing_series(profile: str, start_year: int, n_years: int):
-    """profile in {'strong', 'average', 'weak', 'volatile', 'distressed', 'suspicious'}."""
-    filings = []
-    revenue = random.uniform(80_000, 400_000)
-    suspicious_base = random.choice([100_000, 150_000, 200_000, 250_000, 300_000])
-
-    for i in range(n_years):
-        year = start_year + i
-        distressed = False
-
-        if profile == "strong":
-            revenue *= random.uniform(1.08, 1.20)
-            margin = random.uniform(0.10, 0.18)
-            current_ratio_target = random.uniform(1.8, 2.6)
-            debt_ratio = random.uniform(0.2, 0.6)
-            equity_frac = random.uniform(0.35, 0.55)
-            cl_frac = random.uniform(0.3, 0.5)
-        elif profile == "average":
-            revenue *= random.uniform(0.98, 1.10)
-            margin = random.uniform(0.03, 0.08)
-            current_ratio_target = random.uniform(1.1, 1.5)
-            debt_ratio = random.uniform(1.0, 1.8)
-            equity_frac = random.uniform(0.25, 0.45)
-            cl_frac = random.uniform(0.45, 0.65)
-        elif profile == "weak":
-            revenue *= random.uniform(0.85, 1.02)
-            margin = random.uniform(-0.05, 0.02)
-            current_ratio_target = random.uniform(0.5, 0.95)
-            debt_ratio = random.uniform(2.5, 4.5)
-            equity_frac = random.uniform(0.12, 0.3)
-            cl_frac = random.uniform(0.55, 0.8)
-        elif profile == "volatile":
-            revenue *= random.uniform(0.75, 1.35)
-            margin = random.uniform(-0.08, 0.14)
-            current_ratio_target = random.uniform(0.8, 2.0)
-            debt_ratio = random.uniform(0.8, 2.8)
-            equity_frac = random.uniform(0.2, 0.5)
-            cl_frac = random.uniform(0.4, 0.7)
-        elif profile == "distressed":
-            distressed = True
-            revenue *= random.uniform(0.7, 0.95)
-            margin = random.uniform(-0.18, -0.02)
-            current_ratio_target = random.uniform(0.35, 0.8)
-            debt_ratio = random.uniform(0.9, 1.4)  # total liabilities as a fraction of revenue
-            equity_frac = random.uniform(0.05, 0.25)  # magnitude of the equity deficit
-            cl_frac = random.uniform(0.5, 0.8)
-        else:  # suspicious: round, Benford-unfriendly numbers, still balance-sheet consistent
-            revenue = round(suspicious_base * (1 + i * 0.12), -3)
-            margin = 0.10
-            current_ratio_target = 1.5
-            debt_ratio = 1.0
-            equity_frac = 0.40
-            cl_frac = 0.50
-
-        net_income = round(revenue * margin, 0)
-        cogs = revenue * random.uniform(0.55, 0.75) if profile != "suspicious" else round(revenue * 0.6, -3)
-
-        current_assets, current_liabilities, total_assets, total_liabilities, equity = _build_balance_sheet(
-            revenue, equity_frac, debt_ratio, current_ratio_target, cl_frac, distressed=distressed,
-        )
-        if profile == "suspicious":
-            # round everything to the nearest thousand while preserving the identity exactly
-            equity = round(equity, -3)
-            total_liabilities = round(total_liabilities, -3)
-            total_assets = total_liabilities + equity
-            current_liabilities = round(current_liabilities, -3) or round(total_liabilities * 0.5, -3)
-            current_assets = round(min(current_liabilities * 1.5, total_assets * 0.95), -3)
-
-        filed_date = dt.date(year + 1, random.choice([3, 4, 5, 6]), random.randint(1, 28))
-        is_late = filed_date.month >= 6
-
-        filings.append(dict(
-            year=year, revenue=round(revenue, 0), cogs=round(cogs, 0), net_income=net_income,
-            current_assets=current_assets, current_liabilities=current_liabilities,
-            total_assets=total_assets, total_liabilities=total_liabilities, equity=equity,
-            filed_date=filed_date, is_late=is_late,
-        ))
-    return filings
-
-
-PROFILES = ["strong", "strong", "average", "average", "average", "weak", "weak", "volatile", "distressed", "suspicious"]
+def _make_nipt() -> str:
+    """A plausible-looking Albanian NIPT (letter + 8 digits + letter) for seeded
+    SMEs -- not a real registry number, just shaped like one for the demo."""
+    import string
+    letter1 = random.choice(string.ascii_uppercase)
+    digits = "".join(random.choice(string.digits) for _ in range(8))
+    letter2 = random.choice(string.ascii_uppercase)
+    return f"{letter1}{digits}{letter2}"
 
 
 def seed_if_empty(db: Session) -> None:
@@ -184,11 +106,14 @@ def seed_if_empty(db: Session) -> None:
             contact = _make_contact(name)
             sme = SME(
                 name=name,
+                nipt=_make_nipt(),
+                investment_type=INVESTMENT_TYPE_CYCLE[idx % len(INVESTMENT_TYPE_CYCLE)],
                 sector=sector,
                 city=random.choice(CITIES),
                 description=(
-                    f"{name} is a {sector.lower()} business based in {random.choice(CITIES)}, Albania, "
-                    f"seeking diaspora capital to fund working-capital and expansion needs."
+                    f"{name} është një biznes në sektorin e {SECTOR_LABELS_SQ_LOWER.get(sector, sector)} me bazë "
+                    f"në {random.choice(CITIES)}, Shqipëri, që kërkon kapital nga diaspora për të financuar "
+                    f"kapitalin qarkullues dhe zgjerimin."
                 ),
                 founded_year=random.randint(CURRENT_YEAR - 15, CURRENT_YEAR - 2),
                 employees=random.randint(3, 60),
@@ -200,7 +125,7 @@ def seed_if_empty(db: Session) -> None:
             db.add(sme)
             db.flush()  # get sme.id
 
-            for f in _make_filing_series(profile, start_year, n_years):
+            for f in make_filing_series(_RNG, profile, start_year, n_years):
                 db.add(Filing(sme_id=sme.id, **f))
             db.flush()
 
@@ -226,11 +151,11 @@ def seed_if_empty(db: Session) -> None:
         if i < len(smes) - 3:
             sme.status = "vetted"
             db.add(AdminAction(sme_id=sme.id, actor="seed-admin", action="approve",
-                                notes="Auto-approved during prototype seeding."))
+                                notes="Miratuar automatikisht gjatë krijimit të të dhënave demo."))
         elif i == len(smes) - 1:
             sme.status = "rejected"
             db.add(AdminAction(sme_id=sme.id, actor="seed-admin", action="reject",
-                                notes="Insufficient filing history for initial vetting (seed demo)."))
+                                notes="Histori e pamjaftueshme bilancesh për vetim fillestar (demo)."))
         # else: leave status='pending' for the admin queue demo
 
     db.commit()
@@ -246,8 +171,12 @@ def seed_if_empty(db: Session) -> None:
 
     vetted = [s for s in smes if s.status == "vetted"]
     for sme in vetted[:2]:
+        db.refresh(sme)
+        rs = max(sme.risk_scores, key=lambda r: r.computed_at) if sme.risk_scores else None
+        tier = rs.tier if rs and not rs.unavailable else None
         db.add(Investment(
             investor_id=investor.id, sme_id=sme.id, amount=random.choice([100, 250, 500]),
             currency="EUR", status="committed", idempotency_key=f"seed-{investor.id}-{sme.id}",
+            investment_type=sme.investment_type, expected_return_pct=estimate_return_pct(sme.investment_type, tier),
         ))
     db.commit()

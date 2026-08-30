@@ -6,7 +6,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.database import Base, SessionLocal, engine
 from app.errors import register_exception_handlers
-from app.routers import admin, investments, investors, smes
+from app.routers import admin, investments, investors, qkb, smes
 from app.seed_data import seed_if_empty
 
 FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
@@ -45,6 +45,7 @@ app.add_middleware(SecurityHeadersMiddleware)
 register_exception_handlers(app)
 
 app.include_router(smes.router)
+app.include_router(qkb.router)
 app.include_router(investors.router)
 app.include_router(investments.router)
 app.include_router(admin.router)

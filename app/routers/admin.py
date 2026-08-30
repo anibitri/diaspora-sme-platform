@@ -8,6 +8,7 @@ from app.database import get_db
 from app.deps import require_admin
 from app.errors import sme_error
 from app.models import AdminAction, RiskScore, SME
+from app.returns import estimate_return_pct
 from app.risk_scoring import compute_risk_score
 from app.schemas import AdminActionOut, AdminDecision, SMESummaryOut
 
@@ -18,10 +19,13 @@ CURRENT_YEAR = dt.date.today().year
 
 def _summary(sme: SME) -> SMESummaryOut:
     rs = max(sme.risk_scores, key=lambda r: r.computed_at) if sme.risk_scores else None
+    tier = rs.tier if rs and not rs.unavailable else None
     return SMESummaryOut(
         id=sme.id, name=sme.name, sector=sme.sector, city=sme.city,
         founded_year=sme.founded_year, employees=sme.employees, funding_goal=sme.funding_goal,
         status=sme.status,
+        contact_name=sme.contact_name, contact_email=sme.contact_email,
+        investment_type=sme.investment_type, expected_return_pct=estimate_return_pct(sme.investment_type, tier),
         risk_score=rs.score if rs else None, risk_tier=rs.tier if rs else None,
         risk_stale=rs.stale if rs else False, risk_unavailable=rs.unavailable if rs else True,
     )

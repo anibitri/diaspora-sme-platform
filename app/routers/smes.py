@@ -10,6 +10,7 @@ from app.deps import require_admin
 from app.errors import AppError, auth_error, sme_error, validation_error
 from app.models import AdminAction, Filing, RiskScore, SME
 from app.rate_limit import rate_limit_auth
+from app.returns import estimate_return_pct
 from app.risk_scoring import compute_risk_score
 from app.schemas import RiskScoreOut, SMEDetailOut, SMELogin, SMESessionOut, SMESignup, SMESummaryOut
 
@@ -67,13 +68,16 @@ def _ensure_score(db: Session, sme: SME) -> RiskScore | None:
 
 
 def _detail_out(sme: SME, rs: RiskScore | None) -> SMEDetailOut:
+    tier = rs.tier if rs and not rs.unavailable else None
     return SMEDetailOut(
-        id=sme.id, name=sme.name, sector=sme.sector, city=sme.city, description=sme.description,
+        id=sme.id, name=sme.name, nipt=sme.nipt, sector=sme.sector, city=sme.city, description=sme.description,
         founded_year=sme.founded_year, employees=sme.employees, funding_goal=sme.funding_goal,
         status=sme.status,
         contact_name=sme.contact_name, contact_email=sme.contact_email,
         contact_phone=sme.contact_phone, website=sme.website,
         has_login=sme.password_hash is not None,
+        investment_type=sme.investment_type,
+        expected_return_pct=estimate_return_pct(sme.investment_type, tier),
         filings=sme.filings, risk_score=_risk_score_out(rs),
     )
 
@@ -83,6 +87,7 @@ def list_smes(
     status: str | None = "vetted",
     sector: str | None = None,
     risk_tier: str | None = None,
+    investment_type: str | None = None,
     db: Session = Depends(get_db),
 ):
     query = db.query(SME)
@@ -90,16 +95,22 @@ def list_smes(
         query = query.filter(SME.status == status)
     if sector:
         query = query.filter(SME.sector == sector)
+    if investment_type:
+        query = query.filter(SME.investment_type == investment_type)
 
     out = []
     for sme in query.order_by(SME.name).all():
         rs = _ensure_score(db, sme)
         if risk_tier and (rs is None or rs.tier != risk_tier):
             continue
+        tier = rs.tier if rs and not rs.unavailable else None
         out.append(SMESummaryOut(
             id=sme.id, name=sme.name, sector=sme.sector, city=sme.city,
             founded_year=sme.founded_year, employees=sme.employees, funding_goal=sme.funding_goal,
             status=sme.status,
+            contact_name=sme.contact_name, contact_email=sme.contact_email,
+            investment_type=sme.investment_type,
+            expected_return_pct=estimate_return_pct(sme.investment_type, tier),
             risk_score=rs.score if rs else None,
             risk_tier=rs.tier if rs else None,
             risk_stale=rs.stale if rs else False,
@@ -117,16 +128,23 @@ def signup(payload: SMESignup, db: Session = Depends(get_db)):
     if db.query(SME).filter(SME.contact_email == payload.contact_email).one_or_none():
         raise AppError("AUTH_EMAIL_TAKEN", "A business with that contact email is already registered.", 409)
 
-    total_assets = payload.total_liabilities + payload.equity
-    if payload.current_assets > total_assets + 0.01:
-        raise validation_error("INVALID_AMOUNT", "Current assets cannot exceed total assets (total liabilities + equity).")
-    if payload.current_liabilities > payload.total_liabilities + 0.01:
-        raise validation_error("INVALID_AMOUNT", "Current liabilities cannot exceed total liabilities.")
+    for f in payload.filings:
+        total_assets = f.total_liabilities + f.equity
+        if f.current_assets > total_assets + 0.01:
+            raise validation_error(
+                "INVALID_AMOUNT",
+                f"Filing year {f.year}: current assets cannot exceed total assets (total liabilities + equity).",
+            )
+        if f.current_liabilities > f.total_liabilities + 0.01:
+            raise validation_error(
+                "INVALID_AMOUNT", f"Filing year {f.year}: current liabilities cannot exceed total liabilities."
+            )
 
     sme = SME(
-        name=payload.name, sector=payload.sector, city=payload.city, description=payload.description,
+        name=payload.name, nipt=payload.nipt, sector=payload.sector, city=payload.city,
+        description=payload.description,
         founded_year=payload.founded_year, employees=payload.employees, funding_goal=payload.funding_goal,
-        status="pending",
+        status="pending", investment_type=payload.investment_type,
         contact_name=payload.contact_name, contact_email=payload.contact_email,
         contact_phone=payload.contact_phone, website=payload.website,
         password_hash=hash_password(payload.password),
@@ -135,15 +153,16 @@ def signup(payload: SMESignup, db: Session = Depends(get_db)):
     db.flush()
 
     filed_date = dt.date.today()
-    db.add(Filing(
-        sme_id=sme.id, year=payload.filing_year,
-        revenue=payload.revenue, cogs=payload.cogs, net_income=payload.net_income,
-        current_assets=payload.current_assets, current_liabilities=payload.current_liabilities,
-        total_assets=total_assets, total_liabilities=payload.total_liabilities, equity=payload.equity,
-        filed_date=filed_date, is_late=False,
-    ))
+    for f in payload.filings:
+        db.add(Filing(
+            sme_id=sme.id, year=f.year,
+            revenue=f.revenue, cogs=f.cogs, net_income=f.net_income,
+            current_assets=f.current_assets, current_liabilities=f.current_liabilities,
+            total_assets=f.total_liabilities + f.equity, total_liabilities=f.total_liabilities, equity=f.equity,
+            filed_date=filed_date, is_late=False,
+        ))
     db.add(AdminAction(sme_id=sme.id, actor="system", action="submit",
-                        notes="Business self-registered and submitted for vetting."))
+                        notes="Biznesi u vetregjistrua dhe u dorëzua për vetim."))
     db.commit()
     db.refresh(sme)
 

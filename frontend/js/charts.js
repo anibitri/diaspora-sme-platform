@@ -3,10 +3,10 @@
 
 function renderRiskBreakdown(container, rs) {
   const rows = [
-    ["Liquidity", rs.liquidity_score],
-    ["Leverage", rs.leverage_score],
-    ["Profitability", rs.profitability_score],
-    ["Benford check", rs.benford_score],
+    ["Likuiditeti", rs.liquidity_score],
+    ["Leva financiare", rs.leverage_score],
+    ["Përfitueshmëria", rs.profitability_score],
+    ["Kontrolli Benford", rs.benford_score],
   ];
   const bars = rows
     .map(([label, value]) => {
@@ -36,8 +36,8 @@ function renderBenfordChart(container, distribution) {
       const expH = Math.round((exp / max) * 100);
       return `
       <div class="benford-group">
-        <div class="benford-bar observed" style="height:${obsH}%" title="Observed: ${(obs * 100).toFixed(1)}%"></div>
-        <div class="benford-bar expected" style="height:${expH}%" title="Expected (Benford): ${(exp * 100).toFixed(1)}%"></div>
+        <div class="benford-bar observed" style="height:${obsH}%" title="Vërejtur: ${(obs * 100).toFixed(1)}%"></div>
+        <div class="benford-bar expected" style="height:${expH}%" title="Pritur (Benford): ${(exp * 100).toFixed(1)}%"></div>
         <div class="benford-digit-label">${d}</div>
       </div>`;
     })
@@ -48,9 +48,9 @@ function renderBenfordChart(container, distribution) {
       <div class="benford-chart">${groups}</div>
     </div>
     <div class="legend">
-      <div class="legend-item"><span class="legend-swatch" style="background:var(--series-1)"></span>Observed (this SME's filings)</div>
-      <div class="legend-item"><span class="legend-swatch" style="background:var(--series-2)"></span>Expected (Benford's Law)</div>
+      <div class="legend-item"><span class="legend-swatch" style="background:var(--series-1)"></span>Vërejtur (bilancet e këtij biznesi)</div>
+      <div class="legend-item"><span class="legend-swatch" style="background:var(--series-2)"></span>Pritur (Ligji i Benford-it)</div>
     </div>
-    <p class="muted section-gap">First-digit distribution across ${distribution.n} pooled filing figures. MAD=${distribution.mad} (${distribution.level}).</p>
+    <p class="muted section-gap">Shpërndarja e shifrës së parë në ${distribution.n} shifra të grupuara nga bilancet. MAD=${distribution.mad} (${distribution.level}).</p>
   `;
 }

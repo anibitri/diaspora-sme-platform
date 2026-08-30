@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="sq">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Tregu — Urë</title>
+  <script src="/js/theme-init.js"></script>
+  <link rel="stylesheet" href="/css/style.css" />
+</head>
+<body>
+  <div id="nav"></div>
+  <div class="container">
+    <p class="eyebrow">Diaspora → investim në NVM</p>
+    <h1>Investo në NVM shqiptare</h1>
+    <p class="lede">
+      Shfleto biznese të vogla shqiptare të vlerësuara, secili me një vlerësim rreziku
+      transparent bazuar në bilancet financiare. Ky është një prototip kërkimor: të gjitha
+      investimet më poshtë janë të simuluara, asnjë fond real nuk lëviz.
+      <a href="/index.html#modeli-vleresimit">Si funksionon vlerësimi? →</a>
+    </p>
+    <p class="lede">
+      Ke një biznes në Shqipëri dhe kërkon kapital nga diaspora?
+      <a href="/sme-signup.html">Regjistro biznesin tënd &rarr;</a>
+    </p>
+
+    <div class="toolbar section-gap">
+      <select id="sectorFilter">
+        <option value="">Të gjithë sektorët</option>
+      </select>
+      <select id="tierFilter">
+        <option value="">Të gjitha nivelet e rrezikut</option>
+        <option value="Low">Rrezik i ulët</option>
+        <option value="Medium">Rrezik mesatar</option>
+        <option value="High">Rrezik i lartë</option>
+      </select>
+      <select id="typeFilter">
+        <option value="">Të gjitha llojet e investimit</option>
+        <option value="equity">Kapital (bashkëpronësi)</option>
+        <option value="debt">Hua me kthim fiks</option>
+        <option value="revenue_share">Ndarje të ardhurash</option>
+      </select>
+    </div>
+
+    <div id="list" class="grid"><div class="spinner-text">Duke ngarkuar NVM-të…</div></div>
+  </div>
+
+  <footer class="site-footer"><div id="footer"></div></footer>
+
+  <script src="/js/api.js"></script>
+  <script src="/js/page-market.js"></script>
+</body>
+</html>

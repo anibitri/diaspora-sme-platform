@@ -6,8 +6,8 @@ from app.database import get_db
 from app.errors import AppError, auth_error
 from app.models import Investor
 from app.rate_limit import rate_limit_auth
+from app.routers.investments import _out as _investment_out
 from app.schemas import (
-    InvestmentOut,
     InvestorLogin,
     InvestorOut,
     InvestorSessionOut,
@@ -51,13 +51,6 @@ def get_me(investor: Investor = Depends(get_current_investor)):
 
 @router.get("/me/portfolio", response_model=PortfolioOut)
 def get_my_portfolio(investor: Investor = Depends(get_current_investor)):
-    investments = [
-        InvestmentOut(
-            id=inv.id, investor_id=inv.investor_id, sme_id=inv.sme_id,
-            sme_name=inv.sme.name if inv.sme else None,
-            amount=inv.amount, currency=inv.currency, status=inv.status, created_at=inv.created_at,
-        )
-        for inv in investor.investments
-    ]
+    investments = [_investment_out(inv) for inv in investor.investments]
     total = sum(i.amount for i in investments if i.status == "committed")
     return PortfolioOut(investor=investor, investments=investments, total_committed=total)

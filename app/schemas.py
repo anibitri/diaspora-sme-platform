@@ -1,8 +1,51 @@
 import datetime as dt
+from typing import Literal
 
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
 PASSWORD_MIN_LENGTH = 8
+NIPT_REGEX = r"^[A-Za-z][0-9]{8}[A-Za-z]$"
+InvestmentType = Literal["equity", "debt", "revenue_share"]
+
+
+# ---------------------------------------------------------------------------
+# QKB lookup demo
+# ---------------------------------------------------------------------------
+
+class QKBLookupIn(BaseModel):
+    nipt: str = Field(min_length=10, max_length=10)
+    business_name: str = Field(default="", max_length=200)
+
+    @field_validator("nipt")
+    @classmethod
+    def nipt_format(cls, v: str) -> str:
+        import re
+        if not re.match(NIPT_REGEX, v.strip()):
+            raise ValueError("NIPT must look like a letter, 8 digits, then a letter (e.g. L71926023W).")
+        return v.strip().upper()
+
+
+class QKBFilingOut(BaseModel):
+    year: int
+    revenue: float
+    cogs: float
+    net_income: float
+    current_assets: float
+    current_liabilities: float
+    total_assets: float
+    total_liabilities: float
+    equity: float
+    filed_date: dt.date
+    is_late: bool
+
+
+class QKBLookupOut(BaseModel):
+    nipt: str
+    business_name: str
+    source: str
+    retrieved_at: dt.datetime
+    filings: list[QKBFilingOut]
+    disclaimer: str
 
 
 # ---------------------------------------------------------------------------
@@ -51,6 +94,10 @@ class SMESummaryOut(BaseModel):
     employees: int
     funding_goal: float
     status: str
+    contact_name: str = ""
+    contact_email: str | None = None
+    investment_type: str = "equity"
+    expected_return_pct: float | None = None
     risk_score: float | None = None
     risk_tier: str | None = None
     risk_stale: bool = False
@@ -62,6 +109,7 @@ class SMESummaryOut(BaseModel):
 class SMEDetailOut(BaseModel):
     id: int
     name: str
+    nipt: str
     sector: str
     city: str
     description: str
@@ -74,14 +122,33 @@ class SMEDetailOut(BaseModel):
     contact_phone: str
     website: str
     has_login: bool
+    investment_type: str
+    expected_return_pct: float | None = None
     filings: list[FilingOut]
     risk_score: RiskScoreOut | None
 
     model_config = {"from_attributes": True}
 
 
+class SMESignupFiling(BaseModel):
+    # One year of a filing pulled from the QKB lookup demo (or entered
+    # manually as a fallback). total_assets is deliberately NOT collected
+    # here -- it is derived server-side as total_liabilities + equity so a
+    # submitted filing can never violate the fundamental accounting identity
+    # (assets = liabilities + equity).
+    year: int = Field(ge=1900, le=2100)
+    revenue: float = Field(gt=0)
+    cogs: float = Field(ge=0)
+    net_income: float
+    current_assets: float = Field(ge=0)
+    current_liabilities: float = Field(ge=0)
+    total_liabilities: float = Field(ge=0)
+    equity: float
+
+
 class SMESignup(BaseModel):
     name: str = Field(min_length=1, max_length=200)
+    nipt: str = Field(min_length=10, max_length=10)
     sector: str = Field(min_length=1, max_length=100)
     city: str = Field(min_length=1, max_length=100)
     description: str = Field(default="", max_length=2000)
@@ -95,19 +162,20 @@ class SMESignup(BaseModel):
     website: str = Field(default="", max_length=300)
     password: str = Field(min_length=PASSWORD_MIN_LENGTH, max_length=200)
 
-    # First-year filing, provided at signup so the SME enters the vetting
-    # queue with real data instead of an empty shell. total_assets is
-    # deliberately NOT collected here -- it is derived server-side as
-    # total_liabilities + equity so a submitted filing can never violate
-    # the fundamental accounting identity (assets = liabilities + equity).
-    filing_year: int = Field(ge=1900, le=2100)
-    revenue: float = Field(gt=0)
-    cogs: float = Field(ge=0)
-    net_income: float
-    current_assets: float = Field(ge=0)
-    current_liabilities: float = Field(ge=0)
-    total_liabilities: float = Field(ge=0)
-    equity: float
+    # What kind of investment this business is offering (app.returns.INVESTMENT_TYPES).
+    investment_type: InvestmentType = "equity"
+
+    # Up to four years of filings, normally populated from the QKB lookup
+    # demo on the signup form (see app/qkb.py) rather than typed by hand.
+    filings: list[SMESignupFiling] = Field(min_length=1, max_length=4)
+
+    @field_validator("nipt")
+    @classmethod
+    def nipt_format(cls, v: str) -> str:
+        import re
+        if not re.match(NIPT_REGEX, v.strip()):
+            raise ValueError("NIPT must look like a letter, 8 digits, then a letter (e.g. L71926023W).")
+        return v.strip().upper()
 
     @field_validator("website")
     @classmethod
@@ -177,6 +245,9 @@ class InvestmentOut(BaseModel):
     currency: str
     status: str
     created_at: dt.datetime
+    investment_type: str
+    expected_return_pct: float
+    projected_value_1y: float
 
     model_config = {"from_attributes": True}
 

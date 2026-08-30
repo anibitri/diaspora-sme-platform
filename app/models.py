@@ -11,6 +11,12 @@ class SME(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(String(200))
+    # Albanian tax ID (NIPT): letter + 8 digits + letter. Used to key the
+    # simulated QKB lookup demo on the signup form (app/qkb.py).
+    nipt: Mapped[str] = mapped_column(String(10), default="")
+    # What kind of investment this business is offering -- one of
+    # app.returns.INVESTMENT_TYPES. Chosen by the business at signup.
+    investment_type: Mapped[str] = mapped_column(String(30), default="equity")
     sector: Mapped[str] = mapped_column(String(100))
     city: Mapped[str] = mapped_column(String(100))
     description: Mapped[str] = mapped_column(Text, default="")
@@ -119,6 +125,12 @@ class Investment(Base):
     status: Mapped[str] = mapped_column(String(20), default="committed")
     idempotency_key: Mapped[str | None] = mapped_column(String(200), nullable=True, unique=True)
     created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.utcnow)
+
+    # Snapshotted at commit time (app.returns), same rationale as RiskScore
+    # being versioned: if the SME's tier changes later, an investor's past
+    # projection shouldn't silently change with it.
+    investment_type: Mapped[str] = mapped_column(String(30), default="equity")
+    expected_return_pct: Mapped[float] = mapped_column(Float, default=0.0)
 
     investor: Mapped["Investor"] = relationship(back_populates="investments")
     sme: Mapped["SME"] = relationship(back_populates="investments")

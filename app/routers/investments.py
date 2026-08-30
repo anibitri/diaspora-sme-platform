@@ -6,6 +6,7 @@ from app.auth import get_current_investor
 from app.database import get_db
 from app.errors import AppError, investment_error, sme_error
 from app.models import Investment, Investor, SME
+from app.returns import estimate_return_pct, projected_value
 from app.schemas import InvestmentCreate, InvestmentOut
 
 router = APIRouter(prefix="/api/investments", tags=["investments"])
@@ -18,6 +19,8 @@ def _out(inv: Investment) -> InvestmentOut:
         id=inv.id, investor_id=inv.investor_id, sme_id=inv.sme_id,
         sme_name=inv.sme.name if inv.sme else None,
         amount=inv.amount, currency=inv.currency, status=inv.status, created_at=inv.created_at,
+        investment_type=inv.investment_type, expected_return_pct=inv.expected_return_pct,
+        projected_value_1y=projected_value(inv.amount, inv.expected_return_pct),
     )
 
 
@@ -59,9 +62,14 @@ def create_investment(
             details={"minimum": MIN_INVESTMENT_EUR},
         )
 
+    latest_score = max(sme.risk_scores, key=lambda r: r.computed_at) if sme.risk_scores else None
+    tier = latest_score.tier if latest_score and not latest_score.unavailable else None
+    expected_return_pct = estimate_return_pct(sme.investment_type, tier)
+
     investment = Investment(
         investor_id=investor.id, sme_id=sme.id, amount=payload.amount,
         currency=payload.currency, status="committed", idempotency_key=idempotency_key,
+        investment_type=sme.investment_type, expected_return_pct=expected_return_pct,
     )
     db.add(investment)
     try:

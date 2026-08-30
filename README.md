@@ -42,19 +42,68 @@ auto-seeded with ~17 simulated SMEs (spanning Low/Medium/High risk tiers,
 including at least one with negative equity) on first run. Delete `data/app.db`
 and restart to reseed from scratch.
 
-- **Marketplace** (`/index.html`) — browse vetted SMEs, filter by sector/risk tier.
+The UI is in Albanian (thesis audience), and supports an explicit light/dark
+theme toggle (top-right of the nav) on top of the OS-level preference.
+
+- **Landing page** (`/index.html`) — explains the platform: the problem, how
+  it works, the risk-grading model (tiers + component breakdown), and the
+  QKB-lookup demo, with links into the rest of the app.
+- **Marketplace** (`/marketplace.html`) — browse vetted SMEs, filter by sector,
+  risk tier, and **investment type** (equity/co-ownership, fixed-return debt,
+  or revenue share — see [Investment types](#investment-types-and-expected-return) below).
 - **SME detail** (`/sme.html?id=..`) — filing history, contact & links, full
-  risk-score breakdown with charts, simulated investment form.
-- **List your business** (`/sme-signup.html`) — a business registers, submits
-  its first filing, and enters the admin vetting queue; logging back in shows
-  its own vetting status.
+  risk-score breakdown with charts, a plain-language explainer of the grading
+  system (shown on every listing, not just the landing page), and a simulated
+  investment form with a live "how much would I get back after a year"
+  preview that updates as the amount changes.
+- **List your business** (`/sme-signup.html`) — a business gives its basic
+  info, NIPT (tax ID), and picks which investment type it's offering, then
+  runs a **QKB lookup demo**: the last four years of filings are "pulled"
+  from QKB and shown parsed in a table before submission, rather than typed
+  in by hand (see [Simulated QKB lookup](#simulated-qkb-lookup) below). The
+  business then enters the admin vetting queue; logging back in shows its
+  own vetting status.
 - **Investor** (`/investor.html`) — real sign-up/login (password-based),
-  portfolio view.
-- **Admin** (`/admin.html`) — vetting queue and audit log. Token:
-  `demo-admin-token` (enter it in the on-page prompt; see [Auth caveat](#auth-caveat)).
+  portfolio view with each investment's projected 1-year value.
+- **Admin** (`/admin.html`) — vetting queue (with a one-click `mailto:` link
+  per business, since a real vetting step means being able to reach the
+  business) and audit log. Token: `demo-admin-token` (enter it in the on-page
+  prompt; see [Auth caveat](#auth-caveat)).
 
 Demo credentials (pre-seeded so the portfolio view isn't empty on first look):
 investor `elira.demo@example.com` / `demo1234`.
+
+### Investment types and expected return
+
+Each business picks one investment type at signup (`app/returns.py`):
+
+| Type | Albanian label | What it means |
+|---|---|---|
+| `equity` | Kapital (bashkëpronësi) | investor gets a share of ownership |
+| `debt` | Hua me kthim fiks | investor is repaid with fixed interest |
+| `revenue_share` | Ndarje të ardhurash | investor gets a percentage of revenue |
+
+Whenever an investor is shown a business or simulates committing an amount,
+the platform shows an **illustrative expected annual return** — a simple,
+clearly-labeled-as-not-a-guarantee lookup by (investment type, risk tier),
+not a real pricing model (there's no market data to calibrate one against in
+a prototype). Riskier tiers and higher-upside instrument types get a higher
+nominal rate, mirroring the ordinary risk/return relationship. The rate is
+snapshotted onto the `Investment` row at commit time (same rationale as
+`RiskScore` being versioned): a past investment's projected return doesn't
+retroactively change if the business's tier changes later.
+
+### Simulated QKB lookup
+
+There is no public API a student prototype can call for real QKB filings
+(thesis section 10). `POST /api/qkb/lookup` (`app/qkb.py`) stands in for that
+integration point: given a NIPT, it generates four years of filings using the
+same synthetic-filing engine as the seed data (`app/synth_filings.py`),
+seeded deterministically from a hash of the NIPT so the same NIPT always
+returns the same figures — the way a real read-only lookup would, without
+being a real one. The response is explicit about this (`source` /
+`disclaimer` fields), and the signup form surfaces that disclaimer to the
+user rather than hiding it.
 
 ## The risk-scoring model
 
@@ -195,13 +244,19 @@ app/
   rate_limit.py           In-memory rate limiter for login/signup
   deps.py                  Prototype admin-auth dependency
   risk_scoring.py           Ratio + Benford's Law scoring pipeline
-  seed_data.py                Simulated QKB-style SME/filing dataset
+  returns.py                 Investment-type + risk-tier -> illustrative expected return
+  synth_filings.py           Shared synthetic-filing generator (seed data + QKB demo)
+  seed_data.py                 Simulated QKB-style SME/filing dataset
+  qkb.py                        Simulated QKB lookup-by-NIPT demo
   routers/
-    smes.py, investors.py, investments.py, admin.py
+    smes.py, qkb.py, investors.py, investments.py, admin.py
 frontend/
-  index.html, sme.html, sme-signup.html, investor.html, admin.html
+  index.html                       landing page (mountNav("home"))
+  marketplace.html                 SME browse/filter grid (mountNav("market"))
+  sme.html, sme-signup.html, investor.html, admin.html
   css/style.css
-  js/api.js, js/charts.js          shared helpers (fetch wrapper, esc(), chart rendering)
+  js/theme-init.js                 sets data-theme from localStorage before first paint
+  js/api.js, js/charts.js          shared helpers (fetch wrapper, esc(), theme toggle, chart rendering)
   js/page-*.js                       one external script per page (required for strict CSP)
 ```
 

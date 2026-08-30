@@ -48,7 +48,7 @@ def _tier_for(score: float) -> str:
 
 def _score_liquidity(current_assets: float, current_liabilities: float) -> tuple[float, str]:
     if current_liabilities <= 0:
-        return 0.0, "Current liabilities are zero or missing; liquidity cannot be assessed and is treated as high risk."
+        return 0.0, "Detyrimet korrente janë zero ose mungojnë; likuiditeti nuk mund të vlerësohet dhe trajtohet si rrezik i lartë."
     ratio = current_assets / current_liabilities
     if ratio >= 2.0:
         pts = 25.0
@@ -62,12 +62,12 @@ def _score_liquidity(current_assets: float, current_liabilities: float) -> tuple
         pts = 5.0
     else:
         pts = 0.0
-    return pts, f"Current ratio {ratio:.2f} (current assets / current liabilities)."
+    return pts, f"Likuiditeti korrent {ratio:.2f} (aktive korrente / detyrime korrente)."
 
 
 def _score_leverage(total_liabilities: float, equity: float) -> tuple[float, str]:
     if equity <= 0:
-        return 0.0, "Equity is zero or negative; leverage is treated as maximally risky."
+        return 0.0, "Kapitali është zero ose negativ; leva trajtohet si rrezik maksimal."
     ratio = total_liabilities / equity
     if ratio <= 0.5:
         pts = 25.0
@@ -81,7 +81,7 @@ def _score_leverage(total_liabilities: float, equity: float) -> tuple[float, str
         pts = 5.0
     else:
         pts = 0.0
-    return pts, f"Debt-to-equity {ratio:.2f} (total liabilities / equity)."
+    return pts, f"Raporti borxh-kapital {ratio:.2f} (detyrime gjithsej / kapital)."
 
 
 def _score_profitability(revenue: float, net_income: float, prior_revenue: float | None) -> tuple[float, str]:
@@ -99,9 +99,9 @@ def _score_profitability(revenue: float, net_income: float, prior_revenue: float
             margin_pts = 4.0
         else:
             margin_pts = 0.0
-        notes.append(f"Net margin {margin:.1%}.")
+        notes.append(f"Marzhi neto {margin:.1%}.")
     else:
-        notes.append("Revenue is zero or missing; net margin could not be computed.")
+        notes.append("Të ardhurat janë zero ose mungojnë; marzhi neto nuk mund të llogaritej.")
 
     if prior_revenue is not None and prior_revenue > 0:
         growth = (revenue - prior_revenue) / prior_revenue
@@ -113,10 +113,10 @@ def _score_profitability(revenue: float, net_income: float, prior_revenue: float
             growth_pts = 3.0
         else:
             growth_pts = 0.0
-        notes.append(f"Revenue growth {growth:+.1%} year-on-year.")
+        notes.append(f"Rritja e të ardhurave {growth:+.1%} nga viti në vit.")
     else:
         growth_pts = 5.0
-        notes.append("Only one year of filings available; growth trend not assessed (neutral score applied).")
+        notes.append("Vetëm një vit bilanci në dispozicion; prirja e rritjes nuk u vlerësua (aplikohet një vlerësim neutral).")
 
     return margin_pts + growth_pts, " ".join(notes)
 
@@ -139,10 +139,10 @@ def _score_benford(values: list[float]) -> tuple[float, str, dict | None]:
 
     if n < MIN_BENFORD_OBSERVATIONS:
         note = (
-            f"Only {n} usable line-item figures available across filings "
-            f"(fewer than the recommended minimum of {MIN_BENFORD_OBSERVATIONS}); "
-            "Benford's Law conformity is not statistically reliable at this sample size, "
-            "so a neutral score is applied. Treat as indicative only."
+            f"Vetëm {n} shifra të përdorshme në dispozicion nga bilancet "
+            f"(më pak se minimumi i rekomanduar prej {MIN_BENFORD_OBSERVATIONS}); "
+            "përputhshmëria me Ligjin e Benford-it nuk është statistikisht e besueshme në këtë "
+            "madhësi kampioni, prandaj aplikohet një vlerësim neutral. Trajtoje vetëm si indikativ."
         )
         return 12.0, note, None
 
@@ -154,18 +154,18 @@ def _score_benford(values: list[float]) -> tuple[float, str, dict | None]:
 
     # Nigrini (2012) MAD thresholds for the first-digit test.
     if mad <= 0.006:
-        pts, level = 25.0, "close conformity"
+        pts, level = 25.0, "përputhshmëri e ngushtë"
     elif mad <= 0.012:
-        pts, level = 20.0, "acceptable conformity"
+        pts, level = 20.0, "përputhshmëri e pranueshme"
     elif mad <= 0.015:
-        pts, level = 12.0, "marginal conformity"
+        pts, level = 12.0, "përputhshmëri kufitare"
     else:
-        pts, level = 4.0, "nonconformity"
+        pts, level = 4.0, "mospërputhshmëri"
 
     note = (
-        f"Benford's Law first-digit test over {n} pooled figures: MAD={mad:.4f} ({level}). "
-        "This flags unusual digit patterns as a low-cost anomaly signal, not proof of "
-        "misstatement or fraud -- it should be read alongside the ratio scores, not in isolation."
+        f"Testi i shifrës së parë sipas Ligjit të Benford-it mbi {n} shifra të grupuara: MAD={mad:.4f} ({level}). "
+        "Ky flamurizon modele të pazakonta shifrash si sinjal anomalie me kosto të ulët, jo si provë "
+        "keqdeklarimi apo mashtrimi -- duhet lexuar bashkë me pikët e raporteve, jo veçmas."
     )
     distribution = {
         "n": n,
@@ -223,8 +223,8 @@ def compute_risk_score(filings: list, current_year: int) -> RiskResult:
         notes["benford_distribution"] = benford_distribution
     if stale:
         notes["staleness"] = (
-            f"Most recent filing is from {latest.year}, more than {STALE_AFTER_YEARS} years old. "
-            "Score is shown but flagged as potentially outdated rather than hidden."
+            f"Bilanci më i fundit është nga {latest.year}, më shumë se {STALE_AFTER_YEARS} vjet i vjetër. "
+            "Vlerësimi shfaqet por flamurizohet si potencialisht i vjetëruar, në vend që të fshihet."
         )
 
     return RiskResult(
